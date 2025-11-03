@@ -22,7 +22,7 @@ app.get("/health", (req, res) => {
 });
 
 // Use PORT from environment (Render provides this) or fallback to 2567 for local development
-const PORT = Number.parseInt(process.env.PORT || '2567', 10);
+const PORT = Number.parseInt(process.env.REACT_APP_PORT || '2567', 10);
 
 gameServer.listen(PORT);
 console.log(`🎮 Rey Mato server running on port ${PORT}`);
