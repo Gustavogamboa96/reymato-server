@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon --exec ts-node src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc"
+    "build": "npm install && tsc",
+    "build:render": "npm ci && npm run compile",
+    "compile": "tsc",
+    "postinstall": "npm run compile"
   },
   "dependencies": {
     "colyseus": "^0.15.19",
