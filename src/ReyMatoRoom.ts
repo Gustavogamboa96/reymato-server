@@ -38,28 +38,28 @@ export class ReyMatoRoom extends Room<GameState> {
   }
 
   private setupPhysics() {
-    // Create physics world with moderate gravity for floating ball effect
+    // Create physics world with moderate gravity (good for ball physics)
     this.world = new CANNON.World({
-      gravity: new CANNON.Vec3(0, -4, 0), // Moderate gravity for more floating, less fast falling
+      gravity: new CANNON.Vec3(0, -2, 0), // Moderate gravity for good ball physics
     });
 
     // Ground with low friction
     const groundShape = new CANNON.Plane();
     this.groundBody = new CANNON.Body({ mass: 0 });
     this.groundBody.addShape(groundShape);
-    this.groundBody.material = new CANNON.Material({ friction: 0.1, restitution: 0.3 }); // Good bounce off ground
+    this.groundBody.material = new CANNON.Material({ friction: 0.1, restitution: 0.8 }); // Much higher bounce off ground
     this.groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     this.world.addBody(this.groundBody);
 
-    // Floating ball physics - slower falling, more hang time
-    const ballShape = new CANNON.Sphere(0.7); // Bigger ball
-    this.ballBody = new CANNON.Body({ mass: 0.15 }); // Lighter for more floating
+    // Floating ball physics - slower falling, more hang time, bigger size
+    const ballShape = new CANNON.Sphere(0.9); // Even bigger ball for better visibility
+    this.ballBody = new CANNON.Body({ mass: 0.12 }); // Even lighter for more floating
     this.ballBody.addShape(ballShape);
     this.ballBody.position.set(0, 2, 0);
-    this.ballBody.material = new CANNON.Material({ restitution: 0.85, friction: 0.1 }); // Good bounce
+    this.ballBody.material = new CANNON.Material({ restitution: 0.95, friction: 0.1 }); // Higher bounce
     
     // Higher air resistance for floating effect
-    this.ballBody.linearDamping = 0.12; // More air resistance for floating, slower falling
+    this.ballBody.linearDamping = 0.25; // Maximum air resistance for very slow falling
     this.ballBody.angularDamping = 0.25; // More rotation damping
     
     this.world.addBody(this.ballBody);
@@ -72,46 +72,59 @@ export class ReyMatoRoom extends Room<GameState> {
       const other = e.target === this.ballBody ? e.body : e.target;
       
       if (other === this.groundBody) {
+        // Boost upward momentum when hitting ground for much more dramatic bounces
+        const currentVelY = this.ballBody.velocity.y;
+        if (currentVelY < 0) { // Only boost if ball is falling
+          this.ballBody.velocity.y = Math.abs(currentVelY) * 2.0; // Double the bounce from ground
+        }
         this.handleBallBounce();
       }
     });
   }
 
   private createCourtWalls() {
-    const wallHeight = 5; // Height of invisible walls
-    const wallThickness = 0.5;
+    const wallHeight = 15; // Much taller walls to contain high balls
+    const wallThickness = 1; // Thicker walls for better collision
     const halfCourt = this.COURT_SIZE / 2;
+    const ceilingHeight = 20; // Height of ceiling
     
     // Create wall material with good bounce
-    const wallMaterial = new CANNON.Material({ restitution: 0.8, friction: 0.1 });
+    const wallMaterial = new CANNON.Material({ restitution: 0.7, friction: 0.1 });
     
     // North wall (positive Z)
     const northWall = new CANNON.Body({ mass: 0 });
-    northWall.addShape(new CANNON.Box(new CANNON.Vec3(halfCourt, wallHeight, wallThickness)));
+    northWall.addShape(new CANNON.Box(new CANNON.Vec3(halfCourt + wallThickness, wallHeight, wallThickness)));
     northWall.position.set(0, wallHeight, halfCourt + wallThickness);
     northWall.material = wallMaterial;
     this.world.addBody(northWall);
     
     // South wall (negative Z)
     const southWall = new CANNON.Body({ mass: 0 });
-    southWall.addShape(new CANNON.Box(new CANNON.Vec3(halfCourt, wallHeight, wallThickness)));
+    southWall.addShape(new CANNON.Box(new CANNON.Vec3(halfCourt + wallThickness, wallHeight, wallThickness)));
     southWall.position.set(0, wallHeight, -halfCourt - wallThickness);
     southWall.material = wallMaterial;
     this.world.addBody(southWall);
     
     // East wall (positive X)
     const eastWall = new CANNON.Body({ mass: 0 });
-    eastWall.addShape(new CANNON.Box(new CANNON.Vec3(wallThickness, wallHeight, halfCourt)));
+    eastWall.addShape(new CANNON.Box(new CANNON.Vec3(wallThickness, wallHeight, halfCourt + wallThickness)));
     eastWall.position.set(halfCourt + wallThickness, wallHeight, 0);
     eastWall.material = wallMaterial;
     this.world.addBody(eastWall);
     
     // West wall (negative X)
     const westWall = new CANNON.Body({ mass: 0 });
-    westWall.addShape(new CANNON.Box(new CANNON.Vec3(wallThickness, wallHeight, halfCourt)));
+    westWall.addShape(new CANNON.Box(new CANNON.Vec3(wallThickness, wallHeight, halfCourt + wallThickness)));
     westWall.position.set(-halfCourt - wallThickness, wallHeight, 0);
     westWall.material = wallMaterial;
     this.world.addBody(westWall);
+    
+    // Ceiling to prevent ball from escaping upward
+    const ceiling = new CANNON.Body({ mass: 0 });
+    ceiling.addShape(new CANNON.Box(new CANNON.Vec3(halfCourt + wallThickness, wallThickness, halfCourt + wallThickness)));
+    ceiling.position.set(0, ceilingHeight, 0);
+    ceiling.material = wallMaterial;
+    this.world.addBody(ceiling);
   }
 
   private setupMessageHandlers() {
@@ -147,15 +160,15 @@ export class ReyMatoRoom extends Room<GameState> {
     player.vx = playerBody.velocity.x;
     player.vz = playerBody.velocity.z;
 
-    // Jump - much higher for dynamic gameplay
+    // Jump - massive leap upwards for dramatic aerial gameplay
     if (input.jump && Math.abs(playerBody.velocity.y) < 0.1) {
-      playerBody.velocity.y = 12; // Much higher jump
+      playerBody.velocity.y = 50; // Huge jump to reach half screen height
       player.jumping = true;
       
-      // Reset jumping flag after a longer time due to higher jump
+      // Reset jumping flag after extremely long time due to massive jump
       setTimeout(() => {
         if (player) player.jumping = false;
-      }, 1000);
+      }, 5000); // Extremely long timeout for moon-like jumps
     }
 
     // Actions (kick/head)
@@ -541,7 +554,11 @@ export class ReyMatoRoom extends Room<GameState> {
     body.position.set(player.x, this.PLAYER_HEIGHT / 2, player.z);
     body.material = new CANNON.Material({ friction: 0.1, restitution: 0.1 }); // Reduced friction
     
-    // Lock Y movement - players should stay on ground
+    // Add maximum possible air resistance so players float like feathers
+    body.linearDamping = 0.8; // Maximum air resistance - players fall extremely slowly
+    body.angularDamping = 0.9;  // Prevent spinning
+    
+    // Allow rotation but prevent uncontrolled spinning
     body.fixedRotation = true;
     body.updateMassProperties();
     
@@ -598,10 +615,15 @@ export class ReyMatoRoom extends Room<GameState> {
     this.state.ball.vy = this.ballBody.velocity.y;
     this.state.ball.vz = this.ballBody.velocity.z;
 
-    // Update player positions
+    // Update player positions and apply anti-gravity for jumping players
     for (const [playerId, body] of this.playerBodies) {
       const player = this.state.players.get(playerId);
       if (player && player.active) {
+        // Apply massive upward force to counteract gravity for jumping players
+        if (player.jumping && body.velocity.y < 20) { // Extended range for longer float
+          body.applyForce(new CANNON.Vec3(0, 150, 0), body.position); // Massive upward force for long air time
+        }
+        
         player.x = body.position.x;
         player.y = body.position.y - this.PLAYER_HEIGHT / 2;
         player.z = body.position.z;
@@ -611,7 +633,7 @@ export class ReyMatoRoom extends Room<GameState> {
 
   private updateGameState() {
     // Keep players within court bounds and locked to ground (less aggressive)
-    for (const [, body] of this.playerBodies) {
+    for (const [playerId, body] of this.playerBodies) {
       const halfCourt = this.COURT_SIZE / 2;
       const boundary = halfCourt - 0.5;
       
@@ -632,10 +654,14 @@ export class ReyMatoRoom extends Room<GameState> {
         body.velocity.z = 0;
       }
       
-      // Force players to stay exactly at ground level
+      // Only force ground level if not jumping and close to ground
       const groundY = this.PLAYER_HEIGHT / 2;
-      body.position.y = groundY;
-      body.velocity.y = 0; // Always zero Y velocity unless jumping
+      const player = this.state.players.get(playerId);
+      
+      if (player && !player.jumping && body.position.y <= groundY + 0.1) {
+        body.position.y = groundY;
+        if (body.velocity.y < 0) body.velocity.y = 0; // Stop downward velocity when landing
+      }
     }
 
     // No additional upward force needed for beachball - let gravity work naturally
