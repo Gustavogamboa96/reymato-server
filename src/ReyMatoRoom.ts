@@ -267,11 +267,25 @@ export class ReyMatoRoom extends Room<GameState> {
       direction = direction.unit(); // Normalize again
       force = direction.scale(7); // Increased force for moderate gravity
     } else { // head
-      // Header with more upward force
-      force = new CANNON.Vec3(0, 6, 0); // More upward force for floating effect
-      // Add slight push toward center
-      force.x += -player.x * 0.6;
-      force.z += -player.z * 0.6;
+      // Only apply header if ball is contacting the player's head area
+      // Approximate head world position at the top of the capsule body
+      const headY = playerBody.position.y + (this.PLAYER_HEIGHT / 2 - 0.2);
+      const headPos = new CANNON.Vec3(playerBody.position.x, headY, playerBody.position.z);
+      const dx = this.ballBody.position.x - headPos.x;
+      const dy = this.ballBody.position.y - headPos.y;
+      const dz = this.ballBody.position.z - headPos.z;
+      const horizontalDist = Math.hypot(dx, dz);
+      const verticalDist = Math.abs(dy);
+
+      // Contact thresholds: near head horizontally and vertically
+      if (horizontalDist > 1.0 || verticalDist > 0.6) {
+        return; // Not in head contact range; ignore head action
+      }
+
+      // Push the ball away from the head with an upward component
+      let dir = new CANNON.Vec3(dx, Math.max(dy, 0.2), dz);
+      dir = dir.unit();
+      force = dir.scale(7.5);
     }
 
     this.ballBody.applyImpulse(force, this.ballBody.position);
