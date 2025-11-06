@@ -65,9 +65,10 @@ export class ReyMatoRoom extends Room<GameState> {
     this.groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     this.world.addBody(this.groundBody);
 
-    // Floating ball physics - slower falling, more hang time, bigger size
-    const ballShape = new CANNON.Sphere(0.9); // Even bigger ball for better visibility
-    this.ballBody = new CANNON.Body({ mass: 0.12 }); // Even lighter for more floating
+  // Floating ball physics - slower falling, more hang time, bigger size
+  const ballShape = new CANNON.Sphere(0.9); // Even bigger ball for better visibility
+  // Start with static ball (mass 0). We'll enable physics when 4 players are ready.
+  this.ballBody = new CANNON.Body({ mass: 0 });
     this.ballBody.addShape(ballShape);
     this.ballBody.position.set(0, 2, 0);
     this.ballBody.material = this.ballMat; // Bounciness configured via contact materials
@@ -76,7 +77,10 @@ export class ReyMatoRoom extends Room<GameState> {
     this.ballBody.linearDamping = 0.25; // Maximum air resistance for very slow falling
     this.ballBody.angularDamping = 0.25; // More rotation damping
     
-    this.world.addBody(this.ballBody);
+  // Keep ball static before match starts
+  this.ballBody.type = CANNON.Body.STATIC;
+  this.ballBody.updateMassProperties();
+  this.world.addBody(this.ballBody);
 
     // Create invisible walls around the court to keep ball in bounds
     this.createCourtWalls();
@@ -667,6 +671,13 @@ export class ReyMatoRoom extends Room<GameState> {
     this.state.matchStarted = true;
     this.state.elapsed = 0;
     this.reyStartTime = 0;
+
+    // Enable ball physics now that match starts (give it mass and dynamic type)
+    if (this.ballBody) {
+      this.ballBody.mass = 0.12; // original floating mass
+      this.ballBody.type = CANNON.Body.DYNAMIC;
+      this.ballBody.updateMassProperties();
+    }
     
     this.startNewServe();
     
