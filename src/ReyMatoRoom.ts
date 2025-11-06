@@ -282,7 +282,7 @@ export class ReyMatoRoom extends Room<GameState> {
       const verticalDist = Math.abs(dy);
 
       // Contact thresholds: near head horizontally and vertically
-      if (horizontalDist > 1.0 || verticalDist > 0.6) {
+      if (horizontalDist > 1 || verticalDist > 0.6) {
         return; // Not in head contact range; ignore head action
       }
 
@@ -619,28 +619,30 @@ export class ReyMatoRoom extends Room<GameState> {
   }
 
   private checkAndStartGame() {
-    const activePlayers = Array.from(this.state.players.values()).filter(p => p.active);
-    
-    if (activePlayers.length < 4 && this.state.queue.length > 0) {
-      const roles = ["rey", "rey1", "rey2", "mato"];
-      const usedRoles = activePlayers.map(p => p.role);
-      const availableRoles = roles.filter(role => !usedRoles.includes(role));
-      
-      if (availableRoles.length > 0) {
-        const playerId = this.state.queue.shift()!;
-        const player = this.state.players.get(playerId);
-        
-        if (player) {
-          player.active = true;
-          player.role = availableRoles[0];
-          this.setPlayerPosition(playerId, player.role);
-          this.createPlayerBody(playerId);
-        }
+    // Promote players from queue until we have 4 active players or queue is empty
+    const roles = ["rey", "rey1", "rey2", "mato"];
+    let activeCount = Array.from(this.state.players.values()).filter(p => p.active).length;
+
+    while (activeCount < 4 && this.state.queue.length > 0) {
+      // Recalculate available roles each iteration
+      const usedRolesSet = new Set(Array.from(this.state.players.values()).filter(p => p.active).map(p => p.role));
+      const availableRoles = roles.filter(role => !usedRolesSet.has(role));
+
+      if (availableRoles.length === 0) break;
+
+      const playerId = this.state.queue.shift()!;
+      const player = this.state.players.get(playerId);
+      if (player) {
+        player.active = true;
+        player.role = availableRoles[0];
+        this.setPlayerPosition(playerId, player.role);
+        this.createPlayerBody(playerId);
+        activeCount++;
       }
     }
 
     // Start match when we have 4 players
-    if (activePlayers.length === 4 && !this.state.matchStarted) {
+    if (activeCount === 4 && !this.state.matchStarted) {
       this.startMatch();
     }
   }
@@ -674,9 +676,14 @@ export class ReyMatoRoom extends Room<GameState> {
 
     // Enable ball physics now that match starts (give it mass and dynamic type)
     if (this.ballBody) {
-      this.ballBody.mass = 0.12; // original floating mass
-      this.ballBody.type = CANNON.Body.DYNAMIC;
-      this.ballBody.updateMassProperties();
+      // Only update if currently static so we don't reapply mid-match
+      if (this.ballBody.type === CANNON.Body.STATIC || this.ballBody.mass === 0) {
+        this.ballBody.mass = 0.12; // original floating mass
+        this.ballBody.type = CANNON.Body.DYNAMIC;
+        this.ballBody.updateMassProperties();
+        // Give a tiny nudge downward so it starts moving (avoid perfect rest)
+        this.ballBody.velocity.set(0, -0.01, 0);
+      }
     }
     
     this.startNewServe();
