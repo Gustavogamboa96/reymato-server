@@ -395,44 +395,67 @@ export class ReyMatoRoom extends Room<GameState> {
         if (this.state.queue.length > 0) {
           this.eliminatePlayer(matoPlayer.id);
         } else {
-          // Vacate mato role (3-player mode)
-          matoPlayer.active = false;
-          matoPlayer.role = "queue";
-          const body = this.playerBodies.get(matoPlayer.id);
-          if (body) {
-            this.world.removeBody(body);
-            this.playerBodies.delete(matoPlayer.id);
-          }
+          // No one in queue: do NOT remove the mato player. Just restart the rally.
+          // Reset serve and continue with the same four players.
+          this.startNewServe();
+          return;
         }
       }
     } else {
       const changes: Array<{ playerId: string; oldRole: string; newRole: string }> = [];
       const penalized = this.getPlayerByRole(role);
-      if (penalized) {
-        // Rotate others: mato->rey2, rey2->rey1, rey1->rey (rey stays rey)
-        const matoP = this.getPlayerByRole("mato");
-        if (matoP && matoP.id !== penalized.id) {
-          changes.push({ playerId: matoP.id, oldRole: "mato", newRole: "rey2" });
-          matoP.role = "rey2";
-          this.setPlayerPosition(matoP.id, "rey2");
-        }
-        const rey2P = this.getPlayerByRole("rey2");
-        if (rey2P && rey2P.id !== penalized.id) {
-          changes.push({ playerId: rey2P.id, oldRole: "rey2", newRole: "rey1" });
-          rey2P.role = "rey1";
-          this.setPlayerPosition(rey2P.id, "rey1");
-        }
-        const rey1P = this.getPlayerByRole("rey1");
-        if (rey1P && rey1P.id !== penalized.id) {
-          changes.push({ playerId: rey1P.id, oldRole: "rey1", newRole: "rey" });
-          rey1P.role = "rey";
-          this.setPlayerPosition(rey1P.id, "rey");
-        }
+      const pRey = this.getPlayerByRole("rey");
+      const pRey1 = this.getPlayerByRole("rey1");
+      const pRey2 = this.getPlayerByRole("rey2");
+      const pMato = this.getPlayerByRole("mato");
 
-        // Penalized goes to mato
-        changes.push({ playerId: penalized.id, oldRole: penalized.role, newRole: "mato" });
-        penalized.role = "mato";
-        this.setPlayerPosition(penalized.id, "mato");
+      if (penalized) {
+        if (role === "rey") {
+          // rey loses: rey -> mato, rey1 -> rey, rey2 -> rey1, mato -> rey2
+          if (pRey1) {
+            changes.push({ playerId: pRey1.id, oldRole: "rey1", newRole: "rey" });
+            pRey1.role = "rey";
+            this.setPlayerPosition(pRey1.id, "rey");
+          }
+          if (pRey2) {
+            changes.push({ playerId: pRey2.id, oldRole: "rey2", newRole: "rey1" });
+            pRey2.role = "rey1";
+            this.setPlayerPosition(pRey2.id, "rey1");
+          }
+          if (pMato) {
+            changes.push({ playerId: pMato.id, oldRole: "mato", newRole: "rey2" });
+            pMato.role = "rey2";
+            this.setPlayerPosition(pMato.id, "rey2");
+          }
+          changes.push({ playerId: penalized.id, oldRole: penalized.role, newRole: "mato" });
+          penalized.role = "mato";
+          this.setPlayerPosition(penalized.id, "mato");
+        } else if (role === "rey1") {
+          // rey1 loses: rey unchanged, rey2 -> rey1, mato -> rey2, rey1 -> mato
+          if (pRey2) {
+            changes.push({ playerId: pRey2.id, oldRole: "rey2", newRole: "rey1" });
+            pRey2.role = "rey1";
+            this.setPlayerPosition(pRey2.id, "rey1");
+          }
+          if (pMato) {
+            changes.push({ playerId: pMato.id, oldRole: "mato", newRole: "rey2" });
+            pMato.role = "rey2";
+            this.setPlayerPosition(pMato.id, "rey2");
+          }
+          changes.push({ playerId: penalized.id, oldRole: penalized.role, newRole: "mato" });
+          penalized.role = "mato";
+          this.setPlayerPosition(penalized.id, "mato");
+        } else if (role === "rey2") {
+          // rey2 loses: rey and rey1 unchanged, mato -> rey2, rey2 -> mato
+          if (pMato) {
+            changes.push({ playerId: pMato.id, oldRole: "mato", newRole: "rey2" });
+            pMato.role = "rey2";
+            this.setPlayerPosition(pMato.id, "rey2");
+          }
+          changes.push({ playerId: penalized.id, oldRole: penalized.role, newRole: "mato" });
+          penalized.role = "mato";
+          this.setPlayerPosition(penalized.id, "mato");
+        }
 
         // Notify clients to animate rotation
         this.broadcast("event", { type: "rolesRotated", changes });
@@ -460,6 +483,8 @@ export class ReyMatoRoom extends Room<GameState> {
     
     // Move to end of queue
     this.state.queue.push(playerId);
+    // Reposition eliminated player outside the court looking in
+    this.setPlayerPosition(playerId, "queue");
     
     // Promote next player from queue to mato
     this.promoteFromQueue();
@@ -552,21 +577,38 @@ export class ReyMatoRoom extends Room<GameState> {
 
     let x = 0, z = 0;
     const backLineOffset = 6; // Position players closer to their back lines
+    const queueOutX = 0;      // Queue players outside court center
+    const queueOutZ = -(this.COURT_SIZE / 2 + 4); // Behind bottom side, looking in
     
     switch (role) {
       case "rey": x = 3; z = backLineOffset; break;      // top-right, closer to back
       case "rey1": x = -3; z = backLineOffset; break;    // top-left, closer to back
       case "rey2": x = -3; z = -backLineOffset; break;   // bottom-left, closer to back
       case "mato": x = 3; z = -backLineOffset; break;    // bottom-right, closer to back
-      default: x = 0; z = -10; // queue position (further back)
+      default: x = queueOutX; z = queueOutZ; // queue position outside court
+    }
+
+    // If queued, spread spectators horizontally outside the court and face them inward
+    if (role === "queue") {
+      const idx = this.state.queue.indexOf(playerId);
+      const total = this.state.queue.length;
+      const spacing = 2.5;
+      const offsetX = (idx >= 0 && total > 0) ? (idx - (total - 1) / 2) * spacing : 0;
+      x = offsetX;
     }
 
     player.x = x;
     player.z = z;
     player.y = 0;
 
+    // Face the court center (0,0) on XZ plane
+    const dx = -x;
+    const dz = -z;
+    player.rotY = Math.atan2(dx, dz);
+
     if (playerBody) {
       playerBody.position.set(x, this.PLAYER_HEIGHT / 2, z);
+      // Physics body rotation is fixed; visual rotation is driven by player.rotY on the client
     }
   }
 
@@ -613,6 +655,8 @@ export class ReyMatoRoom extends Room<GameState> {
     
     // Add to queue initially
     this.state.queue.push(client.sessionId);
+    // Position queued player outside the court looking in
+    this.setPlayerPosition(client.sessionId, "queue");
     
     // Try to add to active game if there's space
     this.checkAndStartGame();
