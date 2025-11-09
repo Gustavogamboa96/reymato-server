@@ -4,6 +4,8 @@ export class PlayerState extends Schema {
   @type("string") id: string = "";
   @type("string") nickname: string = "";
   @type("string") role: string = "queue"; // "rey" | "rey1" | "rey2" | "mato" | "queue"
+  // Persistent player color (hex string), independent of role
+  @type("string") color: string = "";
   @type("float32") x: number = 0;
   @type("float32") y: number = 0;
   @type("float32") z: number = 0;

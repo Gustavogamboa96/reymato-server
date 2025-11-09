@@ -650,6 +650,8 @@ export class ReyMatoRoom extends Room<GameState> {
     const player = new PlayerState();
     player.id = client.sessionId;
     player.nickname = options.nickname || `Player${client.sessionId.slice(0, 4)}`;
+    // Assign a bright, unique color per player
+    player.color = this.assignPlayerColor();
     
     this.state.players.set(client.sessionId, player);
     
@@ -660,6 +662,32 @@ export class ReyMatoRoom extends Room<GameState> {
     
     // Try to add to active game if there's space
     this.checkAndStartGame();
+  }
+
+  private assignPlayerColor(): string {
+    // Preferred bright palette
+    const palette = [
+      "#ff1744", // Red A400
+      "#ff9100", // Orange A700
+      "#ffd600", // Yellow A700
+      "#00e676", // Green A400
+      "#00b0ff", // Light Blue A400
+      "#7c4dff", // Deep Purple A400
+      "#ff4081", // Pink A400
+      "#00e5ff"  // Cyan A400
+    ];
+    const used = new Set<string>();
+    for (const [, p] of this.state.players) {
+      if (p.color) used.add(p.color.toLowerCase());
+    }
+    for (const c of palette) {
+      if (!used.has(c.toLowerCase())) return c;
+    }
+    // If palette exhausted, generate a vivid HSL color
+    const h = Math.floor(Math.random() * 360);
+    const s = 85; // saturation
+    const l = 55; // lightness
+    return `hsl(${h} ${s}% ${l}%)`;
   }
 
   private checkAndStartGame() {
