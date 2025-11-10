@@ -86,11 +86,11 @@ export class ReyMatoRoom extends Room<GameState> {
     this.createCourtWalls();
 
     // Contact materials to fine-tune interactions
-    // Ball <-> Ground: bouncy
-    this.world.addContactMaterial(new CANNON.ContactMaterial(this.ballMat, this.groundMat, {
-      friction: 0.1,
-      restitution: 0.8,
-    }));
+    // Ball <-> Ground: increase bounce per request
+      this.world.addContactMaterial(new CANNON.ContactMaterial(this.ballMat, this.groundMat, {
+        friction: 0.14,
+        restitution: 0.75, // requested bounce height
+      }));
     // Ball <-> Walls: moderately bouncy
     this.world.addContactMaterial(new CANNON.ContactMaterial(this.ballMat, this.wallMat, {
       friction: 0.05,
@@ -107,16 +107,11 @@ export class ReyMatoRoom extends Room<GameState> {
       restitution: 0,
     }));
 
-    // Ball collision with ground
+    // Ball collision with ground (remove artificial bounce boost)
     this.ballBody.addEventListener("collide", (e: any) => {
       const other = e.target === this.ballBody ? e.body : e.target;
-      
       if (other === this.groundBody) {
-        // Boost upward momentum when hitting ground for much more dramatic bounces
-        const currentVelY = this.ballBody.velocity.y;
-        if (currentVelY < 0) { // Only boost if ball is falling
-          this.ballBody.velocity.y = Math.abs(currentVelY) * 2; // Double the bounce from ground
-        }
+        // Natural bounce only via restitution; no velocity amplification
         this.handleBallBounce();
       }
     });
@@ -220,27 +215,23 @@ export class ReyMatoRoom extends Room<GameState> {
 
     // Actions (kick/head)
     if (input.action) {
-      this.handlePlayerAction(playerId, input.action);
+      // Ignore legacy 'serve' action; only handle kick/head now
+      if (input.action === "kick" || input.action === "head") {
+        this.handlePlayerAction(playerId, input.action);
+      }
     }
 
     // Keep rotation fixed so joystick always works the same way
     // No auto-rotation based on movement
   }
 
-  private handlePlayerAction(playerId: string, action: "kick" | "head" | "serve") {
+  private handlePlayerAction(playerId: string, action: "kick" | "head") {
     const player = this.state.players.get(playerId);
     const playerBody = this.playerBodies.get(playerId);
     
     if (!player || !playerBody) return;
 
-    // Handle serve action
-    if (action === "serve") {
-      // Only the current server can serve, and only when waiting for serve
-      if (player.role === this.state.currentServer && this.state.waitingForServe) {
-        this.performServe(playerId);
-      }
-      return;
-    }
+    // Serving removed; serves are now automatic from Rey quadrant
 
     // Check if ball is close enough for kick/head actions
     const ballPos = this.ballBody.position;
@@ -300,58 +291,7 @@ export class ReyMatoRoom extends Room<GameState> {
     this.broadcast("playerAnimation", { playerId, action });
   }
 
-  private performServe(playerId: string) {
-    const player = this.state.players.get(playerId);
-    if (!player) return;
-
-    // Position ball near the server (Rey)
-    const serverX = player.x;
-    const serverZ = player.z;
-    
-    this.ballBody.position.set(serverX, 2, serverZ); // Normal height for beachball
-    this.ballBody.velocity.set(0, 0, 0);
-
-    // Determine target based on serving target rotation: Mato -> Rey2 -> Rey1
-    const targetRole = this.servingTargets[this.nextServeTargetIndex];
-    // advance for next serve
-    this.nextServeTargetIndex = (this.nextServeTargetIndex + 1) % this.servingTargets.length;
-
-    let targetX = 0, targetZ = 0;
-    switch (targetRole) {
-      case "mato":
-        targetX = 2.5; targetZ = -2.5; break;
-      case "rey2":
-        targetX = -2.5; targetZ = -2.5; break;
-      case "rey1":
-        targetX = -2.5; targetZ = 2.5; break;
-    }
-    
-    const dirX = targetX - serverX;
-    const dirZ = targetZ - serverZ;
-    const distance = Math.hypot(dirX, dirZ);
-    
-    // Serve force for floating ball
-    const forceScale = 7; // Slightly more force
-    const upwardForce = 3.5;  // Higher arc for floating effect
-    
-    const force = new CANNON.Vec3(
-      (dirX / distance) * forceScale,
-      upwardForce,
-      (dirZ / distance) * forceScale
-    );
-
-    this.ballBody.applyImpulse(force, this.ballBody.position);
-    this.state.ball.lastTouchedBy = playerId;
-    this.state.waitingForServe = false;
-
-    // Broadcast serve event
-    this.broadcast("event", { 
-      type: "serve", 
-      server: player.nickname,
-      serverRole: player.role,
-      targetRole
-    });
-  }
+  // performServe removed in favor of automatic quadrant-based launch from Rey quadrant
 
   private handleBallBounce() {
     const ballPos = this.ballBody.position;
@@ -613,35 +553,44 @@ export class ReyMatoRoom extends Room<GameState> {
   }
 
   private startNewServe() {
-    // Find the current server player and position ball near them
-    // Rey always serves
-    this.state.currentServer = "rey";
-    const serverPlayer = this.getPlayerByRole("rey");
-    if (serverPlayer) {
-      this.ballBody.position.set(serverPlayer.x, 1.5, serverPlayer.z);
-    } else {
-      this.ballBody.position.set(0, 1.5, 0);
+    // Automatic quadrant-based launch: always spawn from Rey quadrant anchor, not player position
+    this.state.currentServer = "rey"; // informational
+    const reyAnchorX = this.COURT_SIZE/4; // positive X
+    const reyAnchorZ = this.COURT_SIZE/4; // positive Z
+    this.ballBody.position.set(reyAnchorX, 2.8, reyAnchorZ);
+    this.ballBody.velocity.set(0,0,0);
+    this.ballBody.angularVelocity.set(0,0,0);
+
+    // Determine next target quadrant (never rey). Order: mato -> rey2 -> rey1 -> repeat
+    const targetRole = this.servingTargets[this.nextServeTargetIndex];
+    this.nextServeTargetIndex = (this.nextServeTargetIndex + 1) % this.servingTargets.length;
+
+    let targetX = 0, targetZ = 0;
+    switch (targetRole) {
+      case "mato": targetX = this.COURT_SIZE/4; targetZ = -this.COURT_SIZE/4; break;
+      case "rey2": targetX = -this.COURT_SIZE/4; targetZ = -this.COURT_SIZE/4; break;
+      case "rey1": targetX = -this.COURT_SIZE/4; targetZ = this.COURT_SIZE/4; break;
     }
-    
-    this.ballBody.velocity.set(0, 0, 0);
-    this.ballBody.angularVelocity.set(0, 0, 0);
-    
-    // Update state
+    const dirX = targetX - reyAnchorX;
+    const dirZ = targetZ - reyAnchorZ;
+    const dist = Math.hypot(dirX, dirZ) || 1;
+  // Further reduced force & arc to soften initial momentum
+  const forceScale = 3.3;
+  const upwardForce = 1.35;
+    this.ballBody.applyImpulse(new CANNON.Vec3((dirX/dist)*forceScale, upwardForce, (dirZ/dist)*forceScale), this.ballBody.position);
+
+    // Reset bounce tracking
     this.state.ball.x = this.ballBody.position.x;
     this.state.ball.y = this.ballBody.position.y;
     this.state.ball.z = this.ballBody.position.z;
-    this.state.ball.vx = 0;
-    this.state.ball.vy = 0;
-    this.state.ball.vz = 0;
+    this.state.ball.vx = this.ballBody.velocity.x;
+    this.state.ball.vy = this.ballBody.velocity.y;
+    this.state.ball.vz = this.ballBody.velocity.z;
     this.state.ball.bounceCount = 0;
     this.state.ball.lastBounceOnRole = "";
-    this.state.waitingForServe = true;
+    this.state.waitingForServe = false; // no manual serve state now
 
-    // Broadcast serve ready event
-    this.broadcast("event", { 
-      type: "serveReady", 
-      server: this.state.currentServer 
-    });
+    this.broadcast("event", { type: "autoServe", fromRole: "rey", targetRole });
   }
 
   onJoin(client: Client, options: JoinOptions) {
